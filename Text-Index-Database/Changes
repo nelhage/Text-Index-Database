@@ -1,0 +1,6 @@
+Revision history for Perl extension Text::Index::Database.
+
+0.01  Wed Oct  5 01:14:36 2005
+	- original version; created by h2xs 1.23 with options
+		-X -n Text::Index::Database
+

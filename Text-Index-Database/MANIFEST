@@ -1,0 +1,6 @@
+Changes
+Makefile.PL
+MANIFEST
+README
+t/Text-Index-Database.t
+lib/Text/Index/Database.pm
