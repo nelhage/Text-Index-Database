@@ -13,18 +13,9 @@ our @ISA = qw(Exporter);
 # names by default without a very good reason. Use EXPORT_OK instead.
 # Do not simply export all your public functions/methods/constants.
 
-# This allows declaration	use Text::Index::Database ':all';
-# If you do not need this, moving things directly into @EXPORT or @EXPORT_OK
-# will save memory.
-our %EXPORT_TAGS = ( 'all' => [ qw(
-	
-) ] );
+our @EXPORT_OK = qw( );
 
-our @EXPORT_OK = ( @{ $EXPORT_TAGS{'all'} } );
-
-our @EXPORT = qw(
-	
-);
+our @EXPORT = qw( );
 
 our $VERSION = '0.01';
 
@@ -47,7 +38,7 @@ sub new
 	my $file = $args{Index} or die("No database index file specified.");
 	my $stop = $args{Stop} || sub {0};
 	my $skip = $args{Skip} || sub {0};
-	my $wordsplit = $args{Split} || qr/[^\w]/;
+	my $wordsplit = $args{Split} || qr/[^\w]+/;
 	my $ignoreCase = $args{IgnoreCase} || 0;
 	$self->{IGNORE_CASE} = $ignoreCase;
 
@@ -193,7 +184,8 @@ sub filterFile
 			last;
 		}
 	}
-	
+
+	@words = map{lc}@words if ($self->{IGNORE_CASE});
 	return @words;
 }
 
@@ -201,7 +193,6 @@ sub extractWords
 {
 	my ($self, $path) = @_;
 	my @words = $self->filterFile($path);
-	@words = map{lc}@words if ($self->{IGNORE_CASE});
 	my %words = map {$_ => 1} @words;
 	@words = keys %words;
 	@words = grep {!$self->{STOP}->($_)} @words;
@@ -296,71 +287,134 @@ sub allDocuments
 sub search
 {
 	my ($self, $query) = @_;
-	#TODO: Support phrase searching
-	my @words = split /\s+/, $query;
-	@words = map{lc}@words if $self->{IGNORE_CASE};
 	my $docs;
-	my %docs;
-	my ($word, $include);
+	my @docs;
 	my $document;
+	my $word;
 
-	my @include;
-	my @exclude;
+	my ($include, $exclude, $iphrases, $ephrases) = $self->_parseQuery($query);
 	my @match;
 
+	my %matches = ();
+	for $word (@$include) {
+		next if $self->{STOP}->($word);
+		$word = $self->getWordID($word);
+		return if $self->{INDEX}->db_get(pack("I", $word), $docs);
+		@docs = unpack("I*", $docs);
+		if (!scalar keys %matches) {
+			$matches{$_} = 1 foreach (@docs);
+		} else {
+			%matches = _union(\%matches, @docs);
+		}
+	}
+
+	for $word (@$exclude) {
+		next if $self->{STOP}->($word);
+		$word = $self->getWordID($word);
+		$self->{INDEX}->db_get(pack("I", $word), $docs) and next;
+		delete $matches{$_} foreach (unpack("I*", $docs));
+	}
+
+	return unless scalar keys %matches;
+	@match = map{$self->{DOCUMENTS}->db_get(pack("I",$_), $document);
+				 substr($document, 0, index($document, "\0"))} keys %matches;
+	@match = $self->_matchPhrases(\@match, $iphrases, $ephrases);
+
+	return @match;
+}
+
+sub _union
+{
+	my ($hash, @docs) = @_;
+	my %docs;
+	return map {$_ => 1} (grep {$hash->{$_}} @docs);
+}
+
+sub _parseQuery
+{
+	my ($self, $query) = @_;
+	$query = lc $query if $self->{IGNORE_CASE};
+	my @include;
+	my @exclude;
+	my @iphrases;
+	my @ephrases;
+	my $include;
+
+	my $word;
+	my $words;
+
+	while ($query =~ /([-+]?)"/) {
+		$words .= " $`";
+		my $inc = ($1 ne "-");
+		$query = $';
+		if ($query =~ /"/) {
+			if ($inc) {
+				push @iphrases, $`;
+				$words .= " $`";
+			} else {
+				push @ephrases, $`;
+			}
+			$query = $';
+		} else {
+			$query =~ s/^.*"//;
+		}
+	}
+	$words .= $query;
+	my @words = split /[^a-zA-Z0-9_+-]+/, $words;
+	
 	for $word (@words) {
-		if(substr($word, 0, 1) eq "+" ||
-			 substr($word, 0, 1) eq "-") {
+		if (substr($word, 0, 1) eq "+" ||
+			  substr($word, 0, 1) eq "-") {
 			$include = $word =~ /^\+/;
 			$word = substr($word, 1);
 		} else {
 			$include = 1;
 		}
-		next if $self->{STOP}->($word);
-		$word = $self->getWordID($word);
-		return if $self->{INDEX}->db_get(pack("I",$word), $docs) && $include;
-		
-		my %docs = map {$_ => 1} (unpack("I*", $docs));
-
-		push @include, \%docs if $include;
-		push @exclude, \%docs unless $include;
+		if ($include) {
+			push @include, $word;
+		} else {
+			push @exclude, $word;
+		}
 	}
-	return unless scalar @include;
-	@match = unionMatches(\@include, \@exclude);
 
-	@match = map{$self->{DOCUMENTS}->db_get(pack("I",$_), $document);
-				 substr($document, 0, index($document, "\0"))} @match;
-	return @match;
+	return (\@include, \@exclude, \@iphrases, \@ephrases);
 }
 
-sub unionMatches
+sub _matchPhrases
 {
-	my ($include, $exclude) = @_;
-	my @include = @$include;
-	my @exclude = @$exclude;
-	
-	my @match = keys %{shift @include};
-	my $set;
-	for $set (@include) {
-		@match = grep {$set->{$_}} @match;
+	my ($self, $match, $inc, $exc) = @_;
+	my $phrase;
+	foreach $phrase (@$inc) {
+		@$match = grep {$self->_findPhrase($_, $phrase)} @$match;
 	}
 
-	for $set (@exclude) {
-		@match = grep {!exists($set->{$_})} @match;
+	foreach $phrase (@$exc) {
+		@$match = grep {!$self->_findPhrase($_, $phrase)} @$match;
 	}
 
-	return @match;
+	return @$match;
+}
+
+sub _findPhrase
+{
+	my ($self, $file, $phrase) = @_;
+	my @words;
+	eval {
+		@words = $self->filterFile($file) or return 0;
+	};
+	return 0 if index($@, "Unable to read") == 0;
+	$phrase = join("\0",split $self->{SPLIT}, $phrase);
+	return index(join("\0",@words), $phrase) != -1;
 }
 
 # Autoload methods go after =cut, and are processed by the autosplit program.
 
 1;
 __END__
-# Below is stub documentation for your module. You'd better edit it!
 
 =head1 NAME
 
-Text::Index::Database - Perl extension for blah blah blah
+Text::Index::Database - Perl extension for full-text indexing of files
 
 =head1 SYNOPSIS
 
