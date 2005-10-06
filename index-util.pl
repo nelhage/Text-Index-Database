@@ -33,6 +33,7 @@ sub usage {
 }
 
 my %commands = (
+	add => \&createIndex,
 	create => \&createIndex,
 	list => \&listIndexes,
 	ls => \&listIndexes,
@@ -97,6 +98,14 @@ sub updateIndex {
 	my $index = shift;
 	my %index = %{$indexes->{$index}};
 	my $db = openDB($index);
+	my @docs = $db->allDocuments();
+	foreach my $file (@docs) {
+		unless (-e $file) {
+			print "Removed $file\n";
+			$db->removeFile($file)
+		}
+	}
+
 	find(sub {
 			 return unless -f;
 			 my @stat = stat($File::Find::name);
@@ -120,5 +129,6 @@ sub searchIndex {
 	my $db = openDB($index);
 	my $search = join(" ", @args);
 	my @results = $db->search($search);
-	print join("\n", @results), "\n";
+	print join("\n", @results);
+	print "\n" if scalar @results;
 }

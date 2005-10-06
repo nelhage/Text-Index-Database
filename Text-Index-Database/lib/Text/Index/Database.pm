@@ -220,6 +220,14 @@ sub indexFile
 	}
 }
 
+sub removeFile
+{
+	my ($self, $file) = @_;
+	my $id;
+	return if $self->{DOCINDEX}->db_get($file, $id);
+	$self->cleanIndex(unpack("I", $id));
+}
+
 sub getDocumentID
 {
 	my ($self, $path, @words) = @_;
@@ -276,10 +284,10 @@ sub allDocuments
 	my @documents;
 	my $cursor = $self->{DOCUMENTS}->db_cursor();
 
-	my ($key, $value);
+	my ($key, $value) = ("", "");
 
 	until ($cursor->c_get($key, $value, DB_NEXT) == DB_NOTFOUND) {
-		push @documents, $value unless $key eq NEXTKEY;
+		push @documents, substr($value, 0, index($value,"\0")) unless $key eq NEXTKEY;
 	}
 	return @documents;
 }
