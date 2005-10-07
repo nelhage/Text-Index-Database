@@ -66,8 +66,8 @@ close(CFG);
 sub openDB {
 	my $index = shift;
 	exists $indexes->{$index} or die("Index `$index' does not exist");
+	$index eq "all" and die("Invalid index: `$index'");
 	my $db = Text::Index::Database->new(Index => CONFIG_DIR . "/" . "$index" . ".db",
-										Skip => qr/~$/,
 										Stop => sub{length $_[0] <= 3},
 										IgnoreCase => 1);
 	return $db;
@@ -96,12 +96,17 @@ sub listIndexes {
 
 sub updateIndex {
 	my $index = shift;
+	if ($index eq "all") {
+		foreach $index (keys %$indexes) {
+			updateIndex($index);
+		}
+		return;
+	}
 	my %index = %{$indexes->{$index}};
 	my $db = openDB($index);
 	my @docs = $db->allDocuments();
 	foreach my $file (@docs) {
 		unless (-e $file) {
-			print "Removed $file\n";
 			$db->removeFile($file)
 		}
 	}
@@ -111,6 +116,7 @@ sub updateIndex {
 			 my @stat = stat($File::Find::name);
 			 my $mtime = $stat[9];
 			 return if $mtime <= $index{UPDATED};
+			 return if /~$/;
 			 $db->indexFile($File::Find::name);
 		 }, $index{ROOT});
 	$indexes->{$index}->{UPDATED} = time;
