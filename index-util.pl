@@ -103,6 +103,9 @@ sub updateIndex {
 		return;
 	}
 	my %index = %{$indexes->{$index}};
+	my $force = shift;
+	$force = defined($force) && $force eq "--force";
+	
 	my $db = openDB($index);
 	my @docs = $db->allDocuments();
 	foreach my $file (@docs) {
@@ -115,7 +118,7 @@ sub updateIndex {
 			 return unless -f;
 			 my @stat = stat($File::Find::name);
 			 my $mtime = $stat[9];
-			 return if $mtime <= $index{UPDATED};
+			 return if $mtime <= $index{UPDATED} && !$force;
 			 return if /~$/;
 			 $db->indexFile($File::Find::name);
 		 }, $index{ROOT});
