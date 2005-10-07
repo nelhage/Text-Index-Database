@@ -37,7 +37,6 @@ sub new
 	my %args = @_;
 	my $file = $args{Index} or die("No database index file specified.");
 	my $stop = $args{Stop} || sub {0};
-	my $skip = $args{Skip} || sub {0};
 	my $wordsplit = $args{Split} || qr/[^\w]+/;
 	my $ignoreCase = $args{IgnoreCase} || 0;
 	$self->{IGNORE_CASE} = $ignoreCase;
@@ -47,7 +46,6 @@ sub new
 	$self->{PATH} = $file;
 	
 	$self->_genStopFunction($stop);
-	$self->{SKIP} = $self->_genFilterFunction($skip) or die("Bad ``Skip'' parameter.");
 
 	#What constitutes a word?
 	$wordsplit = qr/[^$wordsplit]/ unless ref($wordsplit) eq "Regexp";
@@ -202,7 +200,6 @@ sub extractWords
 sub indexFile
 {
 	my ($self, $path) = @_;
-	return if $self->{SKIP}->($path);
 
 	my @words = $self->extractWords($path);
 	@words = map {$self->getWordID($_)} @words;
