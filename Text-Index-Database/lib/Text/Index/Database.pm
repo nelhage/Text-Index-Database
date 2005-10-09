@@ -37,7 +37,7 @@ sub new
 	my %args = @_;
 	my $file = $args{Index} or die("No database index file specified.");
 	my $stop = $args{Stop} || sub {0};
-	my $wordsplit = $args{Split} || qr/[^\w]+/;
+	my $wordsplit = $args{Split} || qr/[^\da-zA-Z]+/;
 	my $ignoreCase = $args{IgnoreCase} || 0;
 	$self->{IGNORE_CASE} = $ignoreCase;
 
